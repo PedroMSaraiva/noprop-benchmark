@@ -1,0 +1,15 @@
+[project]
+name = "noprop-benchmark"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "matplotlib>=3.10.1",
+    "numba>=0.61.2",
+    "rich>=14.0.0",
+    "scipy>=1.15.2",
+    "seaborn>=0.13.2",
+    "torch>=2.7.0",
+    "torchvision>=0.22.0",
+]
