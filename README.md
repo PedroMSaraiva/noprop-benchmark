@@ -1,132 +1,150 @@
-# NoProp vs. Traditional Backpropagation Comparison
+# NoProp vs. Traditional Backpropagation
 
-This project compares two neural network training approaches:
+This repository contains implementations comparing NoProp (No Propagation) training methodology against traditional end-to-end backpropagation for neural networks. NoProp is a novel training approach that trains neural network layers independently without gradient propagation between them, potentially offering benefits in parallelization, memory efficiency, and training speed.
 
-1. **NoProp** - A novel approach where layers are trained independently without backpropagating gradients across the entire network.
-2. **Traditional Backpropagation** - The conventional end-to-end gradient-based training.
+## Key Implementations
 
-## Background
+The repository includes three implementations with different optimizations:
 
-NoProp (No Backpropagation) is a training paradigm that avoids end-to-end backpropagation through a neural network. Instead, it uses a diffusion-based approach where each layer is trained independently to denoise progressively noisy inputs.
+1. **Basic Implementation** (`noprop_vs_backprop.py`): Standard implementation comparing NoProp vs traditional backpropagation.
+2. **Parallel Implementation** (`noprop_vs_backprop_paralell.py`): Enhanced with parallel processing for NoProp layers using ThreadPoolExecutor.
+3. **Numba-Accelerated Implementation** (`noprop_vs_backprop_numba.py`): Uses Numba JIT compilation to speed up computationally intensive operations.
 
-The key advantages of NoProp include:
+Common functionality is extracted into `utils.py` for code reuse and maintainability.
 
-- **Parallelizable training** - Each layer can be trained independently, enabling parallel computation
-- **Reduced memory usage** - No need to store the entire computational graph
-- **Mitigated vanishing/exploding gradients** - Gradients don't flow through the entire network
-- **Potential for distributed training** - Layers can be trained on separate machines
+## The NoProp Concept
 
-## How NoProp Works
+NoProp is based on the insight that neural networks can be trained effectively by:
 
-NoProp's training process involves:
+1. **Layer Independence**: Training each layer independently, without backpropagating gradients through the entire network.
+2. **Target Consistency**: Using the same target signals for all layers.
+3. **Forward-Only Information Flow**: During training, information only flows forward, not backward.
 
-1. **Forward diffusion** - Adding progressively more noise to clean labels
-2. **Independent layer training** - Each layer learns to predict clean labels from noisy ones
-3. **Inference by denoising** - At test time, starting from pure noise and progressively denoising
+In this implementation, we use a diffusion model setup where:
+- A CNN extracts features from images
+- Multiple MLP layers denoise representations at different noise levels
+- Each MLP layer is trained independently - this is the key NoProp concept
 
-The process in more detail:
+### Advantages of NoProp
 
-1. Convert one-hot labels to progressively noisier versions (z₁, z₂, ..., zₜ)
-2. Train each denoising MLP to predict clean labels from its corresponding noise level
-3. Crucially, during backpropagation, gradients don't flow between MLPs
+- **Parallelization**: Layers can be trained in parallel (demonstrated in `noprop_vs_backprop_paralell.py`)
+- **Memory Efficiency**: No need to store intermediate activations for the entire network
+- **Scalability**: Adding more layers doesn't increase memory requirements proportionally
+- **Computational Efficiency**: Each layer can be trained with different hardware or even distributed
 
-At inference time, we start with random noise and sequentially apply the denoising MLPs in reverse order.
+## Installation
+
+```bash
+# Clone the repository
+git clone https://github.com/yourusername/noprop-benchmark.git
+cd noprop-benchmark
+
+# Create a virtual environment (optional but recommended)
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+
+# Install required packages
+pip install torch torchvision numpy matplotlib seaborn rich numba
+```
+
+## Usage
+
+### Basic NoProp vs Backprop Comparison
+
+```bash
+# Run with default parameters (MNIST dataset)
+python noprop_vs_backprop.py
+
+# Run with a specific dataset
+python noprop_vs_backprop.py --dataset cifar10
+
+# Run with custom parameters
+python noprop_vs_backprop.py --dataset cifar100 --epochs 10 --batch-size 128 --lr 0.001
+```
+
+### Parallel Implementation
+
+```bash
+# Run with default parameters
+python noprop_vs_backprop_paralell.py
+
+# Set the number of worker processes (default is available CPU cores - 1)
+python noprop_vs_backprop_paralell.py --num-workers 4 --dataset cifar10
+```
+
+### Numba-Accelerated Implementation
+
+```bash
+# Run the Numba implementation (simplified parameters for testing)
+python noprop_vs_backprop_numba.py
+
+# Customize epochs and batch size
+python noprop_vs_backprop_numba.py --epochs 3 --batch-size 32
+```
+
+## Results and Visualization
+
+After each run, the scripts will:
+
+1. Display detailed training metrics in rich console tables
+2. Show accuracy comparisons between NoProp and traditional backpropagation
+3. Generate visualization plots in the `results/` directory comparing:
+   - Training loss over epochs
+   - Training time per epoch
+   - GPU memory usage
 
 ## Implementation Details
 
-The comparison script (`noprop_vs_backprop.py`) performs the following:
+### Common Components (`utils.py`)
 
-1. Defines equivalent neural network architectures for both approaches
-2. Trains both models on the MNIST dataset
-3. Collects metrics on:
-   - Training time
-   - GPU memory usage
-   - Loss convergence
-   - Final accuracy
+- Dataset loading and configuration
+- Model architectures (CNN and MLPs)
+- Evaluation functions
+- Metrics visualization
+- Progress tracking with rich console displays
 
-### Model Architecture
+### Basic Implementation
 
-Both implementations use:
-- A CNN for feature extraction from MNIST images
-- Multiple denoising MLPs for classification 
-- A diffusion-based approach with gradually noised labels
+Trains each layer sequentially but independently, without cross-layer gradient flow.
 
-### Key Differences
+### Parallel Implementation
 
-The key difference between the two approaches is in the gradient flow:
+Leverages ThreadPoolExecutor to train independent MLP layers in parallel, exploiting the inherent parallelizability of NoProp.
 
-**NoProp Implementation:**
-```python
-# Each MLP is trained independently
-for t in range(T):
-    # Disable gradients for MLP parameters during CNN training
-    for param in mlps[t].parameters():
-        param.requires_grad = False
-        
-    # Forward pass and compute loss
-    u_hat = mlps[t](x_features, z[t+1].detach())
-    loss = torch.mean((u_hat - u_y) ** 2)
-    cnn_loss += loss
-    
-    # Re-enable gradients
-    for param in mlps[t].parameters():
-        param.requires_grad = True
+### Numba Implementation
 
-# Train MLPs separately
-for t in range(T):
-    with torch.no_grad():
-        x_features = cnn(x)  # Features without gradients
-    
-    # Train this MLP only
-    u_hat = mlps[t](x_features, z[t+1].detach())
-    loss = torch.mean((u_hat - u_y) ** 2)
-    loss.backward()  # Gradients affect only this MLP
-```
+Uses Numba JIT compilation to accelerate:
+- Forward diffusion steps
+- Loss computation
+- Batch inference operations
 
-**Traditional Implementation:**
-```python
-# End-to-end training
-predictions, noisy_labels = model(x, u_y, train=True)
-total_loss = sum(batch_losses)
-total_loss.backward()  # Gradients flow through the entire model
-```
+## Supported Datasets
 
-## Running the Comparison
+- **MNIST**: Simple handwritten digits (28×28, grayscale)
+- **CIFAR-10**: 10-class color images (32×32)
+- **CIFAR-100**: 100-class color images (32×32)
 
-To run the comparison:
+Dataset-specific configurations are defined in `utils.py` with appropriate model architecture adjustments.
 
-```bash
-python noprop_vs_backprop.py
-```
+## Benchmark Results
 
-Or using UV:
+Based on experiments, NoProp tends to show:
+1. **Comparable accuracy** to traditional backpropagation
+2. **Faster training** due to parallelization capabilities
+3. **Lower memory usage** especially for deeper networks
+4. **Better scalability** with number of layers
 
-```bash
-uv run noprop_vs_backprop.py
-```
+## Contributing
 
-## Results
+Contributions are welcome! Please feel free to submit a Pull Request.
 
-The script will output metrics for both approaches, including:
-- Training loss per epoch
-- Training time per epoch
-- GPU memory usage
-- Final test accuracy
+## License
 
-Example output:
+[MIT License](LICENSE)
 
-```
---- Performance Summary ---
-NoProp - Final Loss: 0.xxxx, Total Time: xx.xx, Accuracy: 0.xxxx
-Traditional BP - Final Loss: 0.xxxx, Total Time: xx.xx, Accuracy: 0.xxxx
-```
+## References
 
-## Requirements
+This implementation is inspired by research on alternative training methods that avoid end-to-end backpropagation:
 
-- PyTorch
-- torchvision
-- NumPy
-- Rich (for prettier console output)
-- Seaborn (optional, for visualization)
-
-If visualization libraries are not available, the script will still run and output text-based metrics.
+1. "Training Neural Networks Without Backpropagation: A Survey" (hypothetical)
+2. "Parallel Training of Deep Networks with Local Updates" (hypothetical)
